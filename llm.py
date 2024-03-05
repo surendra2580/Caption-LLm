@@ -8,9 +8,13 @@ from io import BytesIO
 import os
 
 # Load the model, tokenizer, and feature extractor
-model = VisionEncoderDecoderModel.from_pretrained('nlpconnect/vit-gpt2-image-captioning')
-feature_extractor = ViTImageProcessor.from_pretrained('nlpconnect/vit-gpt2-image-captioning')
-tokenizer = AutoTokenizer.from_pretrained('nlpconnect/vit-gpt2-image-captioning')
+try:
+    model = VisionEncoderDecoderModel.from_pretrained('nlpconnect/vit-gpt2-image-captioning')
+    feature_extractor = ViTImageProcessor.from_pretrained('nlpconnect/vit-gpt2-image-captioning')
+    tokenizer = AutoTokenizer.from_pretrained('nlpconnect/vit-gpt2-image-captioning')
+except Exception as model_load_error:
+    st.error(f"Error loading the model: {model_load_error}")
+    st.stop()
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model.to(device)
@@ -20,21 +24,30 @@ num_beams = 4
 gen_kwargs = {'max_length': max_length, 'num_beams': num_beams}
 
 def predict_step(image):
-    pixel_values = feature_extractor(images=[image], return_tensors='pt').pixel_values
-    pixel_values = pixel_values.to(device)
+    try:
+        pixel_values = feature_extractor(images=[image], return_tensors='pt').pixel_values
+        pixel_values = pixel_values.to(device)
 
-    attention_mask = torch.ones(pixel_values.shape[:-1], device=device)
-    output_ids = model.generate(pixel_values, attention_mask=attention_mask, **gen_kwargs)
+        attention_mask = torch.ones(pixel_values.shape[:-1], device=device)
+        output_ids = model.generate(pixel_values, attention_mask=attention_mask, **gen_kwargs)
 
-    preds = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
-    preds = [pred.strip() for pred in preds]
-    return preds[0]
+        preds = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+        preds = [pred.strip() for pred in preds]
+        return preds[0]
+    except Exception as prediction_error:
+        st.error(f"Error generating caption: {prediction_error}")
+        return None
+
 def text_to_audio(text):
-    tts = gTTS(text=text, lang='en')
-    audio_buffer = BytesIO()
-    tts.write_to_fp(audio_buffer)
-    audio_buffer.seek(0)
-    return audio_buffer
+    try:
+        tts = gTTS(text=text, lang='en')
+        audio_buffer = BytesIO()
+        tts.write_to_fp(audio_buffer)
+        audio_buffer.seek(0)
+        return audio_buffer
+    except Exception as audio_generation_error:
+        st.error(f"Error generating audio: {audio_generation_error}")
+        return None
 
 if __name__=='__main__':
     # Streamlit app
@@ -49,7 +62,9 @@ if __name__=='__main__':
         if st.button('Generate Caption and Audio'):
             st.write("Generating caption...")
             caption = predict_step(image)
-            st.write("Caption:", caption)
-            # Generate audio
-            audio_buffer = text_to_audio(caption)
-            st.audio(audio_buffer, format='audio/mp3')
+            if caption is not None:
+                st.write("Caption:", caption)
+                # Generate audio
+                audio_buffer = text_to_audio(caption)
+                if audio_buffer is not None:
+                    st.audio(audio_buffer, format='audio/mp3')
